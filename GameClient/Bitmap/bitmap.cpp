@@ -1,0 +1,82 @@
+#include <windows.h>
+#include <tchar.h>
+#include <time.h>
+#include "CDib.h"
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+{
+	WNDCLASSEX wcex;
+	wcex.cbSize = sizeof(WNDCLASSEX);
+	wcex.style = CS_HREDRAW | CS_VREDRAW;
+	wcex.lpfnWndProc = WndProc;
+	wcex.cbClsExtra = 0;
+	wcex.cbWndExtra = 0;
+	wcex.hInstance = hInstance;
+	wcex.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+	wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
+	wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+	wcex.lpszMenuName = NULL;
+	wcex.lpszClassName = TEXT("MyWindowClass");
+	wcex.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
+
+	RegisterClassEx(&wcex);
+
+	HWND hWnd = CreateWindow(
+		TEXT("MyWindowClass"),
+		TEXT("Window Title Name"),
+		WS_OVERLAPPEDWINDOW,
+		CW_USEDEFAULT, CW_USEDEFAULT,
+		800, 600,
+		NULL, NULL, hInstance, NULL
+	);
+
+	if (!hWnd)
+		return 0;
+
+	ShowWindow(hWnd, nCmdShow);
+	UpdateWindow(hWnd);
+
+	MSG msg = { 0 };
+	while (GetMessage(&msg, NULL, 0, 0))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
+	return (int)msg.wParam;
+}
+
+CDib dib;
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	HDC hdc;
+	PAINTSTRUCT ps;
+	static HDC memdc;
+	static HBITMAP bitmap;
+	static HBITMAP oldmap;
+
+	switch (message)
+	{
+	case WM_CREATE:
+		hdc = GetDC(hWnd);
+		dib.Load(_T("kirby_.bmp"),hdc);
+		bitmap = dib.BitMap();
+		memdc = CreateCompatibleDC(hdc);
+		oldmap = (HBITMAP)SelectObject(memdc, bitmap);
+		ReleaseDC(hWnd, hdc);
+		break;
+	case WM_PAINT:
+		hdc = BeginPaint(hWnd, &ps);
+		BitBlt(hdc, 0, 0, 800, 600, memdc, 0, 0, SRCCOPY);
+		EndPaint(hWnd, &ps);
+		break;
+	case WM_DESTROY:
+		DeleteDC(memdc);
+		PostQuitMessage(0);
+		break;
+	}
+	return DefWindowProc(hWnd, message, wParam, lParam);
+}
