@@ -43,7 +43,7 @@
 
 **다수 클라이언트의 입력을 동시에 받아 서버에서 판정하고 전체에 반영하는 실시간 대전 게임 서버 (1인 단독 구현)**
 
-📂 **소스 코드**: [`/TCPFighter_Server`](./TCPFighter_Server) — 메인 로직(`main.cpp`) · 링버퍼(`RingBuffer.h/cpp`) 전체 공개
+📂 **소스 코드**: [`/TCPFighter_Server`](./TCPFighter_Server) — 서버(`Server`) · 세션(`Session`) · 패킷 생성(`MakePacket`) · 링버퍼(`RingBuffer.h/cpp`) 전체 공개
 *(패킷 프로토콜 정의 헤더는 교육기관 제공 자료라 저작권을 존중해 제외)*
 
 | 항목 | 상세 내용 |
@@ -83,7 +83,8 @@ graph TD
 
 **1. 판정은 서버가 한다**
 - 이동은 서버가 프레임(20ms)마다 직접 계산하고 맵 경계를 넘지 않게 제한, 공격 범위(`dfATTACK*_RANGE`) 판정과 데미지도 서버가 결정해 전체에 브로드캐스트
-- 패킷 헤더에 매직 넘버(`0x89`)를 두어 손상·비정상 패킷은 세션 종료로 격리 (`main.cpp:495`)
+- 클라이언트가 보고한 좌표는 서버 좌표와 오차 범위(`dfERROR_RANGE` ±50) 안일 때만 반영하고, 벗어나면 무시한 채 서버 좌표를 브로드캐스트 (`Session::UpdatePosition`)
+- 패킷 헤더에 매직 넘버(`0x89`)를 두어 손상·비정상 패킷은 세션 종료로 격리 (`Session.cpp:57`)
 
 **2. 링버퍼 직접 구현 — 복사 없는 수신 경로**
 - 가용 공간 포인터를 `recv()`에 직접 전달해 **중간 복사 없이** 적재 (`DirectEnqueueSize`)
@@ -91,16 +92,16 @@ graph TD
 
 **3. select 운용 최적화 — CPU 100% 해소**
 - 전 세션을 `WriteSet`에 상시 등록하면 항상 "쓰기 가능" 상태라 `select()`가 즉시 리턴을 반복 → CPU 점유율 100%
-- **송신 큐에 데이터가 있는 세션만 등록**하도록 변경해 해소 (`main.cpp:332-338`)
+- **송신 큐에 데이터가 있는 세션만 등록**하도록 변경해 해소 (`Server.cpp:147-149`)
   ```cpp
-  FD_SET(pSession->Socket, &ReadSet);
-  if (pSession->Sendq.GetUseSize() > 0)
-      FD_SET(pSession->Socket, &WriteSet);
+  FD_SET(session->GetSocket(), &readSet);
+  if (session->HasSendData())
+      FD_SET(session->GetSocket(), &writeSet);
   ```
 
 **4. 논블로킹 송신의 부분 전송 처리**
 - `send()`가 요청한 만큼 다 보내지 못하는 경우를 전제로, 보낸 만큼만 링버퍼에서 제거
-- `WSAEWOULDBLOCK`은 오류가 아닌 **정상 분기**로 처리 (`main.cpp:468, 535`)
+- `WSAEWOULDBLOCK`은 오류가 아닌 **정상 분기**로 처리 (`Session.cpp:40, 90`)
 
 ### 트러블슈팅 — 접속 종료 시 발생하는 크래시
 
@@ -119,8 +120,8 @@ graph TD
        → 그 목록은 바로 그 순간 순회 중 → 반복자 무효화 → 해제된 메모리 접근
   │
 해결   삭제 시점을 순회에서 분리 — '지연 삭제(Deferred Delete)'
-       ① 세션에 bIsAlive 플래그만 내림          (main.cpp:828-833)
-       ② 실제 정리는 다음 프레임 최상단에서 일괄  (main.cpp:310~321)
+       ① 세션에 m_isAlive 플래그만 내림         (Session.cpp:111-115)
+       ② 실제 정리는 다음 루프 최상단에서 일괄    (Server.cpp:125-137)
        ③ 종료가 여러 경로에서 중복 호출되지 않게 진입부 가드
 ```
 
